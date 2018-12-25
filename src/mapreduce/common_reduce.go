@@ -1,5 +1,11 @@
 package mapreduce
 
+import (
+	"encoding/json"
+	"os"
+	"sort"
+)
+
 func doReduce(
 	jobName string, // the name of the whole MapReduce job
 	reduceTask int, // which reduce task this is
@@ -44,4 +50,52 @@ func doReduce(
 	//
 	// Your code here (Part I).
 	//
+
+	// Opening all temp files
+	decoders := make([]*json.Decoder, nMap)
+	for i := 0; i < nMap; i++ {
+		fileName := reduceName(jobName, i, reduceTask)
+		file, err := os.OpenFile(fileName, os.O_RDONLY, 0600)
+		if err != nil {
+			panic(err)
+		}
+		decoders[i] = json.NewDecoder(file)
+		defer file.Close()
+	}
+
+	// Initialize a new key-value map to store the results
+	kvs := make(map[string][]string)
+
+	// Unmarshal all temp files and collate key-values
+	for i:= 0; i < nMap; i++ {
+		var kv KeyValue
+		for {
+			err := decoders[i].Decode(&kv)
+			if err != nil {
+				break
+			}
+			kvs[kv.Key] = append(kvs[kv.Key], kv.Value)
+		}
+	}
+
+	// Sort by Key
+	var keys []string
+	for k := range kvs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	// Create output file
+	file, err := os.OpenFile(outFile, os.O_CREATE|os.O_RDWR, 0666)
+    if err != nil {
+            panic(err)
+    }
+
+	// Apply reduce f() and write results
+	encoder := json.NewEncoder(file)
+	for _, key := range keys {
+		encoder.Encode(KeyValue{key, reduceF(key, kvs[key])})
+	}
+	file.Close()
+
 }
